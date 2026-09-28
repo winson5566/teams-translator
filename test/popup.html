@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Popup test</title>
+</head>
+<body>
+  <div id="popup"></div>
+  <pre id="results"></pre>
+
+  <script>
+    const store = { apiKey: "", confirmBeforeSend: false };
+    window.openedOptions = 0;
+    window.browser = {
+      storage: {
+        local: {
+          get: async (defaults) => ({ ...defaults, ...store }),
+          set: async (values) => Object.assign(store, values),
+        },
+      },
+      runtime: { openOptionsPage: async () => { openedOptions++; } },
+    };
+    window.close = () => {};
+
+    const loadScript = (src) => new Promise((resolve) => {
+      const script = document.createElement("script");
+      script.src = src;
+      script.onload = resolve;
+      document.body.append(script);
+    });
+
+    const results = [];
+    const check = (name, ok, detail = "") => results.push(`${ok ? "PASS" : "FAIL"} ${name} ${ok ? "" : detail}`);
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const toggle = (id) => document.getElementById(id);
+    const flip = (id) => {
+      toggle(id).checked = !toggle(id).checked;
+      toggle(id).dispatchEvent(new Event("change"));
+    };
+
+    async function run() {
+      // The real popup markup, without its script tags, so the stubs above are in place first.
+      const markup = new DOMParser().parseFromString(await (await fetch("../popup.html")).text(), "text/html");
+      markup.querySelectorAll("script").forEach((s) => s.remove());
+      document.getElementById("popup").append(...markup.body.childNodes);
+      await loadScript("../settings.js");
+      await loadScript("../popup.js");
+      await wait(50);
+
+      check("toggles show the stored settings",
+        toggle("enabled").checked && !toggle("confirmBeforeSend").checked && toggle("checkBeforeSend").checked);
+      check("content check is disabled while confirmation is off", toggle("checkBeforeSend").disabled);
+      check("missing API key is pointed out", document.getElementById("missingKey").style.display === "block");
+
+      flip("confirmBeforeSend");
+      await wait(20);
+      check("turning confirmation on saves it and enables the content check",
+        store.confirmBeforeSend === true && !toggle("checkBeforeSend").disabled);
+      flip("checkBeforeSend");
+      await wait(20);
+      check("turning the content check off saves it", store.checkBeforeSend === false);
+      flip("enabled");
+      await wait(20);
+      check("pausing translation saves it", store.enabled === false);
+
+      document.getElementById("moreSettings").click();
+      await wait(20);
+      check("more settings opens the options page", openedOptions === 1);
+
+      document.getElementById("results").textContent = results.join("\n");
+      window.testResults = results;
+    }
+    run();
+  </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Teams 翻译</title>
+  <style>
+    body { width: 280px; margin: 0; padding: 12px 14px; font: 14px system-ui, sans-serif; color: #242424; background: #fff; }
+    h1 { margin: 0 0 10px; font-size: 15px; }
+    .toggle { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-top: 1px solid #eee; cursor: pointer; }
+    .toggle input { margin-top: 3px; }
+    .hint { font-size: 12px; color: #666; }
+    .toggle.disabled { opacity: 0.45; cursor: default; }
+    #missingKey { display: none; margin-bottom: 8px; padding: 8px; border-radius: 4px; background: #fff4ce; font-size: 13px; }
+    #moreSettings { display: block; margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; color: #5b5fc7; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Teams 翻译</h1>
+  <div id="missingKey">还没有填 DeepSeek API key，翻译和检查都不能用。请打开“更多设置”填写。</div>
+
+  <label class="toggle">
+    <input id="enabled" type="checkbox">
+    <span>自动翻译消息<div class="hint">把 Teams 里的英文消息翻成中文</div></span>
+  </label>
+  <label class="toggle">
+    <input id="confirmBeforeSend" type="checkbox">
+    <span>发送前确认<div class="hint">按回车或点发送时先弹确认框，中文会先翻成英文</div></span>
+  </label>
+  <label class="toggle" id="checkToggle">
+    <input id="checkBeforeSend" type="checkbox">
+    <span>发送前检查内容<div class="hint">在确认框里检查是否发错、前后矛盾、语气或敏感信息</div></span>
+  </label>
+
+  <a id="moreSettings">更多设置</a>
+
+  <script src="settings.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Teams 翻译设置</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 560px; margin: 32px auto; padding: 0 16px; }
+    label { display: block; margin-top: 16px; font-weight: 600; }
+    input { width: 100%; padding: 6px; margin-top: 4px; box-sizing: border-box; }
+    .hint { font-size: 0.85em; color: #666; margin-top: 2px; }
+    button { margin-top: 20px; margin-right: 8px; padding: 6px 14px; }
+    #status { margin-top: 16px; white-space: pre-wrap; }
+    #permissions { display: none; padding: 10px; background: #fff4ce; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Teams 翻译设置</h1>
+
+  <div id="permissions">
+    插件还没有访问 Teams 和 DeepSeek 的权限。
+    <button id="grant">授予权限</button>
+  </div>
+
+  <label for="apiKey">DeepSeek API key</label>
+  <input id="apiKey" type="password" autocomplete="off">
+  <div class="hint">在 platform.deepseek.com 创建，只保存在本机浏览器里</div>
+
+  <label for="targetLanguage">翻译成</label>
+  <input id="targetLanguage">
+
+  <label for="contextMessageCount">上下文消息条数</label>
+  <input id="contextMessageCount" type="number" min="0" max="30">
+  <div class="hint">翻译每条消息时带上前面多少条作为参考，越多越准，也越费钱</div>
+
+  <label><input id="confirmBeforeSend" type="checkbox" style="width:auto"> 发送前确认</label>
+  <div class="hint">在 Teams 里按回车或点发送时，先弹出确认框</div>
+
+  <label><input id="checkBeforeSend" type="checkbox" style="width:auto"> 发送前检查内容</label>
+  <div class="hint">在确认框里结合上下文检查是否发错对话、前后矛盾、语气不当或含有敏感信息</div>
+
+  <label for="myName">你在 Teams 里显示的名字</label>
+  <input id="myName">
+  <div class="hint">和 Teams 里显示的完全一致，建议回复会站在你的角度来写</div>
+
+  <label for="insightContextMessageCount">“解读 & 建议回复”的上下文条数</label>
+  <input id="insightContextMessageCount" type="number" min="0" max="50">
+
+  <label for="model">模型</label>
+  <input id="model">
+
+  <button id="save">保存</button>
+  <button id="test">测试翻译</button>
+  <div id="status"></div>
+
+  <script src="settings.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
