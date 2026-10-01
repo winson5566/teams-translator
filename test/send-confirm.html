@@ -17,6 +17,7 @@
   </div>
   <pre id="results"></pre>
 
+  <script src="deepseek-stub.js"></script>
   <script>
     const store = { apiKey: "dsk.localtestvalue.9f3a" };
     const storageListeners = [];
@@ -36,6 +37,7 @@
       runtime: {
         onMessage: { addListener: (l) => messageListeners.push(l) },
         onInstalled: { addListener: () => {} },
+        onConnect: { addListener: () => {} },
         sendMessage: async (msg) => messageListeners[0](msg),
       },
       action: { setBadgeText: async () => {} },
@@ -46,7 +48,7 @@
     // Stand-in for DeepSeek: fixed translations and check verdicts keyed on the text.
     window.draftCalls = [];
     window.checkCalls = [];
-    const reply = (content) => new Response(JSON.stringify({ choices: [{ message: { content } }] }));
+    const reply = (content) => streamed(content);
     const CHECKS = {
       "see you thursday": { verdict: "warn", issues: ["Sam 说的是周三，你写的是周四"], suggestion: "see you wednesday." },
       "here is the q3 salary sheet for the board": { verdict: "block", issues: ["这段对话里没人提到工资表，可能发错了对话"], suggestion: "" },

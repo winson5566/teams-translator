@@ -1,5 +1,9 @@
-const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 const TRANSLATION_TIMEOUT_MS = 30000;
+// Diagnostics wait longer than real requests so a slow answer is measured instead of cut off.
+const DIAGNOSE_MODELS_TIMEOUT_MS = 15000;
+const DIAGNOSE_CHAT_TIMEOUT_MS = 90000;
+const DIAGNOSE_PROGRESS_MS = 10000;
 // The insight answer is several times longer than a translation.
 const INSIGHT_TIMEOUT_MS = 60000;
 // DeepSeek's documented recommendation for translation tasks.
@@ -165,30 +169,75 @@ function buildSendCheckPrompt({ message, draft, context }, { targetLanguage }) {
   ];
 }
 
-async function callDeepSeek(requestBody, timeoutMs) {
-  const settings = await loadSettings();
-  if (!settings.apiKey) {
-    throw new Error("未设置 DeepSeek API key，请在插件设置页填写");
-  }
-  const response = await fetch(DEEPSEEK_URL, {
+function postToDeepSeek(settings, requestBody, timeoutMs) {
+  return fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${settings.apiKey}`,
     },
-    body: JSON.stringify({ model: settings.model, stream: false, ...requestBody }),
+    // Current models think before answering unless told not to, which makes every request much slower.
+    // Streamed so text arrives as it is generated instead of after one long silent wait.
+    body: JSON.stringify({
+      model: settings.model,
+      stream: true,
+      stream_options: { include_usage: true },
+      thinking: { type: "disabled" },
+      ...requestBody,
+    }),
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`DeepSeek HTTP ${response.status}: ${body.slice(0, 200)}`);
+}
+
+const isTimeout = (error) => error.name === "TimeoutError" || error.name === "AbortError";
+
+// Reads DeepSeek's server-sent events, handing each parsed chunk to onChunk until "[DONE]".
+// Lines that are not "data:" lines, such as keep-alive comments, are skipped.
+async function readEventStream(response, onChunk) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    buffered += decoder.decode(value, { stream: true });
+    const lines = buffered.split("\n");
+    buffered = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice("data:".length).trim();
+      if (data === "[DONE]") return;
+      onChunk(JSON.parse(data));
+    }
   }
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content?.trim();
-  if (!content) {
-    throw new Error(`DeepSeek returned no content: ${JSON.stringify(data).slice(0, 200)}`);
+}
+
+async function callDeepSeek(requestBody, timeoutMs) {
+  const settings = await loadSettings();
+  if (!settings.apiKey) {
+    throw new Error("未设置 DeepSeek API key，请在插件设置页填写");
   }
-  return content;
+  let content = "";
+  try {
+    const response = await postToDeepSeek(settings, requestBody, timeoutMs);
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`DeepSeek HTTP ${response.status}: ${body.slice(0, 200)}`);
+    }
+    await readEventStream(response, (chunk) => {
+      content += chunk.choices?.[0]?.delta?.content ?? "";
+    });
+  } catch (error) {
+    if (!isTimeout(error)) throw error;
+    throw new Error(
+      `DeepSeek ${timeoutMs / 1000} 秒内没有回应完（模型 ${settings.model}），可以在设置页点“诊断”查看原因`,
+      { cause: error }
+    );
+  }
+  if (!content.trim()) {
+    throw new Error(`DeepSeek returned no content (model ${settings.model})`);
+  }
+  return content.trim();
 }
 
 async function translate(request) {
@@ -265,6 +314,77 @@ async function explainInContext(request) {
   }, INSIGHT_TIMEOUT_MS);
   return parseInsight(content);
 }
+
+const DIAGNOSE_SAMPLE = { message: { author: "Alice", text: "Can you push the fix to staging before EOD?" }, context: [] };
+
+// Reports each step as it happens, so a hang shows exactly where it stopped.
+async function diagnose(report) {
+  const settings = await loadSettings();
+  const elapsed = (start) => `${Math.round(performance.now() - start)} 毫秒`;
+  report(`插件版本 ${browser.runtime.getManifest().version}，模型 ${settings.model}，API key ${settings.apiKey ? "已填" : "未填"}`);
+  if (!settings.apiKey) return;
+
+  let start = performance.now();
+  report("1/2 获取可用模型列表...");
+  try {
+    const response = await fetch(`${DEEPSEEK_BASE_URL}/models`, {
+      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      signal: AbortSignal.timeout(DIAGNOSE_MODELS_TIMEOUT_MS),
+    });
+    report(`模型列表: HTTP ${response.status}，用时 ${elapsed(start)}`);
+    if (response.ok) {
+      const modelIds = (await response.json()).data.map((model) => model.id);
+      report(`你的账号可用的模型: ${modelIds.join(", ")}`);
+      if (!modelIds.includes(settings.model)) report(`注意: 当前设置的模型 ${settings.model} 不在这个列表里`);
+    } else {
+      report(`返回内容: ${(await response.text()).slice(0, 300)}`);
+    }
+  } catch (error) {
+    report(`模型列表失败: ${error.name}: ${error.message}，用时 ${elapsed(start)}`);
+  }
+
+  start = performance.now();
+  report(`2/2 发送一次翻译请求（最多等 ${DIAGNOSE_CHAT_TIMEOUT_MS / 1000} 秒）...`);
+  const progress = { chunks: 0, reasoning: "", content: "", finishReason: "", model: "", usage: null };
+  const progressTimer = setInterval(() => {
+    report(`  已等待 ${elapsed(start)}：收到 ${progress.chunks} 段，思考 ${progress.reasoning.length} 字，正文 ${progress.content.length} 字`);
+  }, DIAGNOSE_PROGRESS_MS);
+  try {
+    const response = await postToDeepSeek(settings, {
+      messages: buildTranslationPrompt(DIAGNOSE_SAMPLE, settings.targetLanguage),
+      temperature: TRANSLATION_TEMPERATURE,
+    }, DIAGNOSE_CHAT_TIMEOUT_MS);
+    report(`翻译请求: HTTP ${response.status}，收到响应头用时 ${elapsed(start)}`);
+    if (!response.ok) {
+      report(`返回内容: ${(await response.text()).slice(0, 300)}`);
+      return;
+    }
+    await readEventStream(response, (chunk) => {
+      const delta = chunk.choices?.[0]?.delta ?? {};
+      if (progress.chunks === 0) report(`收到第一段内容用时 ${elapsed(start)}`);
+      if (delta.reasoning_content && !progress.reasoning) report(`开始思考，用时 ${elapsed(start)}（说明思考模式没有关掉）`);
+      if (delta.content && !progress.content) report(`开始输出正文，用时 ${elapsed(start)}`);
+      progress.chunks++;
+      progress.reasoning += delta.reasoning_content ?? "";
+      progress.content += delta.content ?? "";
+      progress.model = chunk.model ?? progress.model;
+      progress.finishReason = chunk.choices?.[0]?.finish_reason ?? progress.finishReason;
+      progress.usage = chunk.usage ?? progress.usage;
+    });
+    report(`完成，总用时 ${elapsed(start)}；实际模型 ${progress.model}，结束原因 ${progress.finishReason}`);
+    report(`思考 ${progress.reasoning.length} 字，用量 ${JSON.stringify(progress.usage)}`);
+    report(`译文: ${progress.content}`);
+  } catch (error) {
+    report(`翻译请求失败: ${error.name}: ${error.message}，用时 ${elapsed(start)}；已收到 ${progress.chunks} 段，正文 ${progress.content.length} 字`);
+  } finally {
+    clearInterval(progressTimer);
+  }
+}
+
+browser.runtime.onConnect.addListener((port) => {
+  if (port.name !== "diagnose") return;
+  diagnose((line) => port.postMessage(line)).finally(() => port.disconnect());
+});
 
 browser.runtime.onMessage.addListener((msg) => {
   if (msg.type === "translate") return translate(msg);

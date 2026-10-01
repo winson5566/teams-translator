@@ -21,6 +21,7 @@
   </div>
   <pre id="results"></pre>
 
+  <script src="deepseek-stub.js"></script>
   <script>
     // Stand-in for the WebExtension API: storage in memory, sendMessage routed to background.js's listener.
     const store = { apiKey: "test-key", myName: "Dana", insightContextMessageCount: 2 };
@@ -41,6 +42,8 @@
       runtime: {
         onMessage: { addListener: (l) => messageListeners.push(l) },
         onInstalled: { addListener: () => {} },
+        onConnect: { addListener: () => {} },
+        getManifest: () => ({ version: "test" }),
         sendMessage: async (msg) => messageListeners[0](msg),
       },
       action: { setBadgeText: async () => {} },
@@ -58,18 +61,18 @@
       const body = JSON.parse(init.body);
       fetchCalls.push({ url, headers: init.headers, body });
       if (body.response_format?.type === "json_object") {
-        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+        return streamed(JSON.stringify({
           explanation: "对方在催你今天下班前部署",
           replies: [
             { english: "Sure, will do.", translation: "好的，马上办。" },
             { english: "Which branch?", translation: "哪个分支？" },
             { english: "On it...", translation: "在弄了..." },
           ],
-        }) } }] }));
+        }));
       }
       const prompt = body.messages[1].content;
       const target = prompt.split("Message to translate:\n")[1];
-      return new Response(JSON.stringify({ choices: [{ message: { content: `ZH(${target})` } }] }));
+      return streamed(`ZH(${target})`);
     };
   </script>
   <script src="../settings.js"></script>
@@ -126,8 +129,15 @@
           && panel.querySelectorAll(".ctt-reply").length === 3, panel.textContent);
       const insightCall = fetchCalls.at(-1).body;
       check("insight prompt explains the user marker", insightCall.messages[0].content.includes('"(the user)"'));
-      check("insight uses deepseek-chat without thinking mode",
-        insightCall.model === "deepseek-chat" && insightCall.thinking === undefined, JSON.stringify(insightCall.model));
+      check("insight uses deepseek-flash with thinking turned off",
+        insightCall.model === "deepseek-flash" && insightCall.thinking?.type === "disabled", JSON.stringify(insightCall.model));
+      check("translation uses deepseek-flash with thinking turned off",
+        second.body.model === "deepseek-flash" && second.body.thinking?.type === "disabled");
+      store.model = "deepseek-chat";
+      check("a retired model name saved in settings is replaced", (await loadSettings()).model === "deepseek-flash");
+      store.model = "deepseek-v4-pro";
+      check("a current model name chosen by the user is kept", (await loadSettings()).model === "deepseek-v4-pro");
+      delete store.model;
       check("insight panel has no debug details", !panel.querySelector("details"));
       check("insight prompt asks to spell out jokes and who is addressed",
         insightCall.messages[0].content.includes("spell out the joke")
@@ -151,7 +161,7 @@
       check("second click hides the panel", panel.hidden === true);
 
       const aliceBox = document.querySelectorAll(".ctt-translation")[1];
-      window.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"explanation": 1}' } }] }));
+      window.fetch = async () => streamed('{"explanation": 1}');
       aliceBox.querySelector(".ctt-insight-button").click();
       await wait(300);
       check("malformed insight shows an error", aliceBox.nextElementSibling.textContent.startsWith("分析失败"),
@@ -236,6 +246,38 @@
       check("own message panel shows rewrites", ownPanel.textContent.includes("更好的说法"), ownPanel.textContent);
       check("own message insight asks for rewrites",
         fetchCalls.at(-1).body.messages[0].content.includes("The focus message was written by the user"));
+
+      window.fetch = async () => { throw new DOMException("The operation was aborted.", "AbortError"); };
+      const timeoutError = await translate({ message: { author: "A", text: "hello" }, context: [] }).catch((e) => e);
+      check("a timeout is reported in plain words with the model",
+        timeoutError.message.includes("秒内没有回应") && timeoutError.message.includes("deepseek-flash"), timeoutError.message);
+
+      window.fetch = async (url, init) => {
+        if (url.endsWith("/models")) {
+          return new Response(JSON.stringify({ data: [{ id: "deepseek-flash" }, { id: "deepseek-v4-pro" }] }));
+        }
+        return streamed("你能在下班前把修复推到预发布吗？", { reasoning: window.diagnoseReasoning ?? "" });
+      };
+      const lines = [];
+      await diagnose((line) => lines.push(line));
+      const report = lines.join("\n");
+      check("diagnostics list the available models, the status, thinking and the translation",
+        report.includes("可用的模型: deepseek-flash, deepseek-v4-pro") && report.includes("翻译请求: HTTP 200")
+          && report.includes("思考 0 字") && report.includes("译文: 你能在下班前把修复推到预发布吗？")
+          && !report.includes("开始思考"), report);
+      window.diagnoseReasoning = "Let me think about this sentence";
+      const thinkingLines = [];
+      await diagnose((line) => thinkingLines.push(line));
+      check("diagnostics show when the model is thinking",
+        thinkingLines.some((line) => line.includes("开始思考")) && thinkingLines.some((line) => line.includes("思考 32 字")),
+        thinkingLines.join("\n"));
+      delete window.diagnoseReasoning;
+      store.model = "my-old-model";
+      const staleLines = [];
+      await diagnose((line) => staleLines.push(line));
+      check("diagnostics point out a model the account does not have",
+        staleLines.some((line) => line.includes("my-old-model 不在这个列表里")), staleLines.join("\n"));
+      delete store.model;
 
       document.getElementById("results").textContent = results.join("\n");
       window.testResults = results;

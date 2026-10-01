@@ -59,7 +59,21 @@ document.getElementById("grant").addEventListener("click", async () => {
   showMissingPermissions();
 });
 document.getElementById("save").addEventListener("click", save);
+async function runDiagnostics() {
+  await save();
+  const output = document.getElementById("diagnostics");
+  output.textContent = "";
+  const port = browser.runtime.connect({ name: "diagnose" });
+  port.onMessage.addListener((line) => {
+    output.textContent += `${new Date().toLocaleTimeString()}  ${line}\n`;
+  });
+  port.onDisconnect.addListener(() => {
+    output.textContent += "诊断结束\n";
+  });
+}
+
 document.getElementById("test").addEventListener("click", testTranslation);
+document.getElementById("diagnose").addEventListener("click", runDiagnostics);
 
 fillForm();
 showMissingPermissions();

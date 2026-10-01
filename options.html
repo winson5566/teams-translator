@@ -10,6 +10,7 @@
     .hint { font-size: 0.85em; color: #666; margin-top: 2px; }
     button { margin-top: 20px; margin-right: 8px; padding: 6px 14px; }
     #status { margin-top: 16px; white-space: pre-wrap; }
+    #diagnostics { margin-top: 12px; white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
     #permissions { display: none; padding: 10px; background: #fff4ce; margin-top: 16px; }
   </style>
 </head>
@@ -47,10 +48,13 @@
 
   <label for="model">模型</label>
   <input id="model">
+  <div class="hint">deepseek-flash（默认，快且便宜）或 deepseek-v4-pro（更准，更贵）</div>
 
   <button id="save">保存</button>
   <button id="test">测试翻译</button>
+  <button id="diagnose">诊断</button>
   <div id="status"></div>
+  <pre id="diagnostics"></pre>
 
   <script src="settings.js"></script>
   <script src="options.js"></script>
