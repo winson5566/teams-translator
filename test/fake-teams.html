@@ -44,7 +44,7 @@
         onInstalled: { addListener: () => {} },
         onConnect: { addListener: () => {} },
         getManifest: () => ({ version: "test" }),
-        sendMessage: async (msg) => messageListeners[0](msg),
+        sendMessage: (msg) => new Promise((resolve) => messageListeners[0](msg, {}, resolve)),
       },
       action: { setBadgeText: async () => {} },
     };

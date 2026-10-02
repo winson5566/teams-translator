@@ -386,11 +386,22 @@ browser.runtime.onConnect.addListener((port) => {
   diagnose((line) => port.postMessage(line)).finally(() => port.disconnect());
 });
 
-browser.runtime.onMessage.addListener((msg) => {
-  if (msg.type === "translate") return translate(msg);
-  if (msg.type === "explain") return explainInContext(msg);
-  if (msg.type === "draftToEnglish") return translateDraftToEnglish(msg);
-  if (msg.type === "checkMessage") return checkBeforeSending(msg);
+const MESSAGE_HANDLERS = {
+  translate,
+  explain: explainInContext,
+  draftToEnglish: translateDraftToEnglish,
+  checkMessage: checkBeforeSending,
+};
+
+// Returning true keeps sendResponse open until the handler settles; see askBackground in settings.js.
+browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  const handler = MESSAGE_HANDLERS[msg.type];
+  if (!handler) return false;
+  handler(msg).then(
+    (result) => sendResponse({ ok: true, result }),
+    (error) => sendResponse({ ok: false, error: error.message })
+  );
+  return true;
 });
 
 async function showEnabledBadge() {

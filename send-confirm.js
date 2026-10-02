@@ -1,7 +1,8 @@
 // Holds Teams' Enter-to-send and send button until the user confirms in a dialog.
 const DIALOG_CLASS = "ctt-send-dialog";
 
-let approvedSendButton = null;
+// Normalized text the user approved in the dialog; their own next send of exactly this text goes through.
+let approvedText = null;
 
 // The editor and its send button share a compose area but neither contains the other.
 function nearestInComposeArea(start, selector) {
@@ -69,7 +70,11 @@ const LOCAL_SECRET_RESULT = {
   suggestion: "",
 };
 
-function showSendDialog(editor, sendButton) {
+function isApproved(editor) {
+  return Boolean(editor) && approvedText !== null && normalizedText(editor.innerText) === approvedText;
+}
+
+function showSendDialog(editor) {
   const original = editor?.innerText.trim() || "";
   const needsEnglish = containsChinese(original);
   const overlay = element("div", DIALOG_CLASS);
@@ -80,7 +85,7 @@ function showSendDialog(editor, sendButton) {
   const checkBox = element("div", "ctt-send-check");
   checkBox.hidden = true;
   const status = element("div", "ctt-send-status");
-  const sendButtonInDialog = element("button", "ctt-send-confirm", needsEnglish ? "发送英文" : "发送");
+  const sendButtonInDialog = element("button", "ctt-send-confirm", needsEnglish ? "放入英文" : "确认");
   const cancelButton = element("button", "ctt-send-cancel", "取消");
   let verdict = "ok";
 
@@ -92,31 +97,31 @@ function showSendDialog(editor, sendButton) {
     closeSendDialog();
     editor?.focus();
   };
+  // Confirming never sends: it leaves the approved text in Teams' box for the user to send themselves.
   const send = async () => {
-    const button = sendButton ?? (editor && nearestInComposeArea(editor, TEAMS_SELECTORS.sendButton));
-    if (!button) {
-      status.textContent = "找不到 Teams 的发送按钮，请直接点击发送按钮，再在这里确认";
+    if (!editor) {
+      status.textContent = "找不到 Teams 的输入框，请在输入框里按回车再试";
       return;
     }
     const message = messageInput.value.trim();
     if (containsChinese(message)) {
-      status.textContent = "英文里还有中文，请改成英文再发送";
+      status.textContent = "英文里还有中文，请改成英文再确认";
       return;
     }
+    approvedText = normalizedText(message);
     if (message !== original) {
       setBusy(true);
       if (!(await replaceEditorText(editor, message))) {
-        status.textContent = "没能自动替换输入框里的内容，所以没有发送。";
+        status.textContent = "没能自动替换输入框里的内容。";
         navigator.clipboard.writeText(message).then(
-          () => (status.textContent += "要发送的内容已复制：请取消，在输入框里全选后粘贴，再发送"),
-          () => (status.textContent += "请手动复制上面的内容，取消后在输入框里全选粘贴，再发送")
+          () => (status.textContent += "要发送的内容已复制：请取消，在输入框里全选后粘贴，再自己按发送"),
+          () => (status.textContent += "请手动复制上面的内容，取消后在输入框里全选粘贴，再自己按发送")
         );
         return;
       }
     }
     closeSendDialog();
-    approvedSendButton = button;
-    button.click();
+    editor.focus();
   };
 
   const showCheck = (result) => {
@@ -141,7 +146,7 @@ function showSendDialog(editor, sendButton) {
       });
       checkBox.append(suggestionLine);
     }
-    if (result.verdict === "block") sendButtonInDialog.textContent = "仍然发送";
+    if (result.verdict === "block") sendButtonInDialog.textContent = needsEnglish ? "仍然放入英文" : "仍然确认";
   };
 
   const prepare = async () => {
@@ -155,7 +160,7 @@ function showSendDialog(editor, sendButton) {
     if (needsEnglish) {
       messageInput.value = "翻译中...";
       try {
-        messageInput.value = await browser.runtime.sendMessage({
+        messageInput.value = await askBackground({
           type: "draftToEnglish",
           draft: original,
           context: recentConversation(settings.contextMessageCount),
@@ -180,7 +185,7 @@ function showSendDialog(editor, sendButton) {
       checkBox.className = "ctt-send-check";
       checkBox.textContent = "正在结合上下文检查...";
       try {
-        showCheck(await browser.runtime.sendMessage({
+        showCheck(await askBackground({
           type: "checkMessage",
           message,
           draft: needsEnglish ? original : "",
@@ -204,7 +209,7 @@ function showSendDialog(editor, sendButton) {
     event.stopPropagation();
     if (event.key === "Escape") cancel();
   });
-  // A blocked message is only sent by clicking "仍然发送", never by a reflexive Enter.
+  // A blocked message is only approved by clicking the button, never by a reflexive Enter.
   messageInput.addEventListener("keydown", (event) => {
     if (!isSendKey(event)) return;
     event.preventDefault();
@@ -213,7 +218,7 @@ function showSendDialog(editor, sendButton) {
 
   const actions = element("div", "ctt-send-actions");
   actions.append(cancelButton, sendButtonInDialog);
-  dialog.append(element("div", "ctt-heading", needsEnglish ? "翻译成英文后发送" : "确认发送这条消息？"));
+  dialog.append(element("div", "ctt-heading", needsEnglish ? "翻译成英文" : "发送前确认"));
   if (needsEnglish) {
     dialog.append(element("div", "ctt-send-label", "原文"), element("div", "ctt-send-preview", original));
   }
@@ -243,9 +248,13 @@ document.addEventListener(
     if (!settings.confirmBeforeSend || !isSendKey(event)) return;
     const editor = event.target.closest?.(TEAMS_SELECTORS.composeBox);
     if (!editor || isSuggestionListOpen(editor)) return;
+    if (isApproved(editor)) {
+      approvedText = null;
+      return;
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (!document.querySelector(`.${DIALOG_CLASS}`)) showSendDialog(editor, null);
+    if (!document.querySelector(`.${DIALOG_CLASS}`)) showSendDialog(editor);
   },
   true
 );
@@ -254,15 +263,15 @@ document.addEventListener(
   "click",
   (event) => {
     const button = event.target.closest?.(TEAMS_SELECTORS.sendButton);
-    if (!button) return;
-    if (button === approvedSendButton) {
-      approvedSendButton = null;
+    if (!button || !settings.confirmBeforeSend) return;
+    const editor = nearestInComposeArea(button, TEAMS_SELECTORS.composeBox);
+    if (isApproved(editor)) {
+      approvedText = null;
       return;
     }
-    if (!settings.confirmBeforeSend) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    showSendDialog(nearestInComposeArea(button, TEAMS_SELECTORS.composeBox), button);
+    showSendDialog(editor);
   },
   true
 );

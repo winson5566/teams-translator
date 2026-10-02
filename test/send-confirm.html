@@ -38,7 +38,7 @@
         onMessage: { addListener: (l) => messageListeners.push(l) },
         onInstalled: { addListener: () => {} },
         onConnect: { addListener: () => {} },
-        sendMessage: async (msg) => messageListeners[0](msg),
+        sendMessage: (msg) => new Promise((resolve) => messageListeners[0](msg, {}, resolve)),
       },
       action: { setBadgeText: async () => {} },
     };
@@ -130,7 +130,15 @@
           && !checkCalls.at(-1).messages[0].content.includes("such as ok or thanks, are fine"));
       inDialog(".ctt-send-confirm").click();
       await wait(100);
-      check("confirming sends exactly once", JSON.stringify(sent) === '["sounds good"]' && !dialog(), JSON.stringify(sent));
+      check("confirming only closes the dialog: nothing is sent, the text stays in the box, focus goes back to it",
+        sent.length === 0 && !dialog() && editor.innerText === "sounds good" && document.activeElement === editor,
+        JSON.stringify(sent));
+      pressIn(editor, { key: "Enter" });
+      check("the user's own Enter then sends it without another dialog",
+        JSON.stringify(sent) === '["sounds good"]' && !dialog(), JSON.stringify(sent));
+      pressIn(editor, { key: "Enter" });
+      check("the approval is used up: the next Enter asks again", Boolean(dialog()) && sent.length === 1);
+      cancelDialog();
 
       await openWith("sounds good");
       pressIn(dialog(), { key: "Escape" });
@@ -142,7 +150,16 @@
       check("send button click opens the dialog", dialog() && sent.length === 1, JSON.stringify(sent));
       inDialog(".ctt-send-confirm").click();
       await wait(100);
-      check("confirming a button click sends once", sent.length === 2, JSON.stringify(sent));
+      check("confirming a button click does not send", sent.length === 1 && !dialog(), JSON.stringify(sent));
+      editor.innerText = "sounds good, edited";
+      sendButton.click();
+      await wait(300);
+      check("text changed after confirming: the send button asks again", Boolean(dialog()) && sent.length === 1);
+      inDialog(".ctt-send-confirm").click();
+      await wait(100);
+      sendButton.click();
+      check("the user's own click on Teams' send button then sends it", sent.at(-1) === "sounds good, edited" && sent.length === 2,
+        JSON.stringify(sent));
 
       await openWith("sounds good");
       pressIn(editor, { key: "Enter" });
@@ -163,23 +180,28 @@
         inDialog(".ctt-check-suggestion")?.firstChild.textContent === "see you wednesday");
       inDialog(".ctt-use-suggestion").click();
       check("using the suggestion puts it in the message box", inDialog(".ctt-send-message").value === "see you wednesday");
+      const sentBeforeSuggestion = sent.length;
       inDialog(".ctt-send-confirm").click();
       await wait(300);
-      check("the corrected message replaces the editor text and is sent",
-        sent.at(-1) === "see you wednesday" && !dialog(), JSON.stringify(sent));
+      check("the corrected message replaces the editor text but is not sent",
+        editor.innerText === "see you wednesday" && sent.length === sentBeforeSuggestion && !dialog());
+      pressIn(editor, { key: "Enter" });
+      check("the user's Enter sends the corrected message", sent.at(-1) === "see you wednesday", JSON.stringify(sent));
 
       // Block
       const sentBeforeBlock = sent.length;
       await openWith("here is the q3 salary sheet for the board");
-      check("wrong chat is blocked and the send button asks to send anyway",
-        inDialog(".ctt-check-block") && inDialog(".ctt-send-confirm").textContent === "仍然发送");
+      check("wrong chat is blocked and the button asks to confirm anyway",
+        inDialog(".ctt-check-block") && inDialog(".ctt-send-confirm").textContent === "仍然确认");
       check("blocked message focuses cancel, not send", document.activeElement === inDialog(".ctt-send-cancel"));
       pressIn(inDialog(".ctt-send-message"), { key: "Enter" });
       await wait(100);
-      check("Enter in the box does not send a blocked message", dialog() && sent.length === sentBeforeBlock);
+      check("Enter in the box does not approve a blocked message", dialog() && sent.length === sentBeforeBlock);
       inDialog(".ctt-send-confirm").click();
       await wait(100);
-      check("clicking send anyway sends it", sent.length === sentBeforeBlock + 1);
+      check("clicking confirm anyway closes the dialog without sending", !dialog() && sent.length === sentBeforeBlock);
+      pressIn(editor, { key: "Enter" });
+      check("the user's Enter then sends it", sent.length === sentBeforeBlock + 1);
 
       // Local secret check
       const checksBeforeSecret = checkCalls.length;
@@ -205,7 +227,7 @@
       editor.innerText = "好的，明天推";
       pressIn(editor, { key: "Enter" });
       check("Chinese draft opens the translate dialog with send disabled",
-        inDialog(".ctt-heading").textContent === "翻译成英文后发送" && inDialog(".ctt-send-confirm").disabled);
+        inDialog(".ctt-heading").textContent === "翻译成英文" && inDialog(".ctt-send-confirm").disabled);
       await wait(300);
       check("English shown without a closing full stop and send enabled",
         inDialog(".ctt-send-message").value === "sure, will push it tomorrow" && !inDialog(".ctt-send-confirm").disabled,
@@ -219,10 +241,13 @@
           && checkCalls.at(-1).messages[0].content.includes("does not say what the draft says"));
       check("translation prompt forbids inventing a better-fitting meaning",
         draftCalls.at(-1).messages[0].content.includes("never something that would fit the conversation better"));
+      const sentBeforeEnglish = sent.length;
       inDialog(".ctt-send-confirm").click();
       await wait(300);
-      check("confirming replaces the editor text and sends the English",
-        sent.at(-1) === "sure, will push it tomorrow" && !dialog(), JSON.stringify(sent));
+      check("confirming puts the English in the editor without sending",
+        editor.innerText === "sure, will push it tomorrow" && sent.length === sentBeforeEnglish && !dialog());
+      pressIn(editor, { key: "Enter" });
+      check("the user's Enter sends the English", sent.at(-1) === "sure, will push it tomorrow", JSON.stringify(sent));
 
       await openWith("ok 我晚点看");
       check("mixed English and Chinese is translated too", inDialog(".ctt-send-preview")?.textContent === "ok 我晚点看");
@@ -240,9 +265,13 @@
       document.execCommand = realExecCommand;
       check("editor that rejects the new text: nothing sent, text copied, user told",
         sent.length === sentBefore && copiedTexts.at(-1) === "ok, will look later"
-          && inDialog(".ctt-send-status").textContent.includes("没有发送"),
+          && inDialog(".ctt-send-status").textContent.includes("没能自动替换"),
         inDialog(".ctt-send-status").textContent);
       cancelDialog();
+      editor.innerText = "ok, will look later";
+      pressIn(editor, { key: "Enter" });
+      check("after pasting the copied English by hand, the user's Enter sends it",
+        sent.at(-1) === "ok, will look later" && !dialog(), JSON.stringify(sent));
 
       const draftCallsBefore = draftCalls.length;
       await openWith("测试Test1");

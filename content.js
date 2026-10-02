@@ -139,7 +139,7 @@ function requestTranslation(request) {
   if (cached) return cached;
   const pending = new Promise((resolve, reject) => {
     requestQueue.push(() =>
-      browser.runtime.sendMessage({ type: "translate", ...request }).then(resolve, reject)
+      askBackground({ type: "translate", ...request }).then(resolve, reject)
     );
     runQueue();
   });
@@ -151,7 +151,7 @@ function requestTranslation(request) {
 function requestInsight(request) {
   const cached = insightsByText.get(request.message.text);
   if (cached) return cached;
-  const pending = browser.runtime.sendMessage({ type: "explain", ...request });
+  const pending = askBackground({ type: "explain", ...request });
   insightsByText.set(request.message.text, pending);
   pending.catch(() => insightsByText.delete(request.message.text));
   return pending;

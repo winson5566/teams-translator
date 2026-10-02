@@ -40,14 +40,14 @@ async function testTranslation() {
   await save();
   statusLine.textContent = "测试翻译中...";
   try {
-    const translation = await browser.runtime.sendMessage({ type: "translate", ...SAMPLE_CONVERSATION });
+    const translation = await askBackground({ type: "translate", ...SAMPLE_CONVERSATION });
     statusLine.textContent = `翻译成功: ${translation}\n测试 “i” 按钮中...`;
   } catch (error) {
     statusLine.textContent = `翻译失败: ${error.message}`;
     return;
   }
   try {
-    const insight = await browser.runtime.sendMessage({ type: "explain", ...SAMPLE_CONVERSATION });
+    const insight = await askBackground({ type: "explain", ...SAMPLE_CONVERSATION });
     statusLine.textContent += `\n“i” 按钮成功: ${insight.explanation}`;
   } catch (error) {
     statusLine.textContent += `\n“i” 按钮失败: ${error.message}`;

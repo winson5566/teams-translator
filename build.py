@@ -7,6 +7,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 EXTENSION_FILES = [
     "manifest.json",
     "settings.js",
+    "background-worker.js",
     "text.js",
     "selectors.js",
     "background.js",
@@ -17,7 +18,10 @@ EXTENSION_FILES = [
     "options.js",
     "popup.html",
     "popup.js",
-    "icons/icon.svg",
+    "icons/icon-16.png",
+    "icons/icon-32.png",
+    "icons/icon-48.png",
+    "icons/icon-128.png",
 ]
 
 
