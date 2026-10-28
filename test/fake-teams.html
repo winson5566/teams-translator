@@ -48,12 +48,6 @@
       },
       action: { setBadgeText: async () => {} },
     };
-    // Headless panes never report intersections, so every observed element counts as visible.
-    window.IntersectionObserver = class {
-      constructor(callback) { this.callback = callback; }
-      observe(target) { setTimeout(() => this.callback([{ target, isIntersecting: true }]), 0); }
-      unobserve() {}
-    };
     window.copiedTexts = [];
     Object.defineProperty(navigator, "clipboard", { value: { writeText: async (t) => copiedTexts.push(t) } });
     window.fetchCalls = [];
@@ -84,12 +78,22 @@
     const results = [];
     const check = (name, ok, detail = "") => results.push(`${ok ? "PASS" : "FAIL"} ${name} ${ok ? "" : detail}`);
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    // Clicks the "译" button of every message not translated yet, as the user would.
+    const translateNew = async () => {
+      for (const button of document.querySelectorAll(".ctt-translate-button")) {
+        if (!button.closest(".ctt-actions").nextElementSibling?.classList.contains("ctt-result")) button.click();
+      }
+      await wait(300);
+    };
     const boxes = () => [...document.querySelectorAll(".ctt-translation")].map((b) => (b.querySelector(".ctt-text") ?? b).textContent);
 
     async function run() {
       const goodFetch = window.fetch;
       await wait(300);
-      check("translates English messages and skips Chinese", boxes().length === 2, JSON.stringify(boxes()));
+      check("English messages get a translate button, Chinese ones do not, and nothing is translated yet",
+        document.querySelectorAll(".ctt-translate-button").length === 2 && boxes().length === 0 && fetchCalls.length === 0);
+      await translateNew();
+      check("clicking the buttons translates the English messages", boxes().length === 2, JSON.stringify(boxes()));
       check("second message inherits author Alice", boxes()[1] === "ZH([Alice]: It blocks the demo tomorrow.)", boxes()[1]);
       const second = fetchCalls.find((c) => c.body.messages[1].content.includes("It blocks"));
       check("context includes the earlier message",
@@ -104,20 +108,29 @@
       item.innerHTML = '<span data-tid="message-author-name">Carol</span><div data-tid="chat-pane-message">Thanks both!</div>';
       document.getElementById("chat").append(item);
       await wait(300);
-      check("paused: new message not translated", boxes().length === 2, JSON.stringify(boxes()));
+      check("turned off: buttons and translations are hidden", document.documentElement.classList.contains("ctt-hidden"));
 
       await browser.storage.local.set({ enabled: true });
-      await wait(300);
-      check("resumed: waiting message translated", boxes().length === 3, JSON.stringify(boxes()));
+      check("turned on again: they show", !document.documentElement.classList.contains("ctt-hidden"));
+      await translateNew();
+      check("a message added while hidden can be translated", boxes().length === 3, JSON.stringify(boxes()));
       const carol = fetchCalls.at(-1).body.messages[1].content;
       check("context keeps the Chinese message for reference", carol.includes("[Bob]: 好的，我马上处理"), carol);
 
       const callsBefore = fetchCalls.length;
+      const carolButton = item.querySelector(".ctt-translate-button");
+      carolButton.click();
+      check("clicking the button again hides the translation", item.querySelector(".ctt-result").hidden);
+      carolButton.click();
+      check("and a third click shows it again without a new request",
+        !item.querySelector(".ctt-result").hidden && fetchCalls.length === callsBefore);
+
       const dup = item.cloneNode(true);
       dup.querySelector("[data-tid=chat-pane-message]").removeAttribute("data-ctt-state");
-      dup.querySelector(".ctt-translation")?.remove();
+      dup.querySelectorAll(".ctt-actions, .ctt-result").forEach((node) => node.remove());
       document.getElementById("chat").append(dup);
       await wait(300);
+      await translateNew();
       check("re-rendered identical message uses cache", fetchCalls.length === callsBefore && boxes().length === 4);
 
       const carolBox = document.querySelectorAll(".ctt-translation")[2];
@@ -173,9 +186,15 @@
       bad.innerHTML = '<div data-tid="chat-pane-message">One more thing</div>';
       document.getElementById("chat").append(bad);
       await wait(300);
+      await translateNew();
       check("API error shown in box", boxes().at(-1).startsWith("翻译失败: DeepSeek HTTP 402"), boxes().at(-1));
 
       window.fetch = goodFetch;
+      bad.querySelector(".ctt-translate-button").click();
+      await wait(300);
+      check("clicking the button after an error translates again",
+        bad.querySelectorAll(".ctt-translation").length === 1 && !bad.querySelector(".ctt-error")
+          && boxes().at(-1).endsWith("One more thing)"), boxes().at(-1));
       const addMessage = (html) => {
         const node = document.createElement("div");
         node.setAttribute("data-tid", "chat-pane-item");
@@ -186,16 +205,19 @@
       addMessage('Looks good<div><button data-tid="diverse-reaction-pill-button">\u{1F440} 1</button>'
         + '<span data-tid="reaction-summary">1 Eyes reaction.</span></div>');
       await wait(300);
+      await translateNew();
       check("reactions are not part of the translated text", lastTranslated().endsWith("]: Looks good"), lastTranslated());
 
       const callsBeforeEmoji = fetchCalls.length;
       addMessage('<img alt="\u{1F44D}" itemtype="http://schema.skype.com/Emoji">');
       await wait(300);
-      check("emoji-only message is not translated", fetchCalls.length === callsBeforeEmoji
-        && document.querySelectorAll('[data-ctt-state="skipped"]').length === 2);
+      check("emoji-only message gets no buttons and is not translated", fetchCalls.length === callsBeforeEmoji
+        && document.querySelectorAll('[data-ctt-state="skipped"]').length === 1
+        && !document.querySelector('[data-ctt-state="skipped"]').nextElementSibling?.classList.contains("ctt-actions"));
 
       addMessage("<p>Line one</p><p>Line two</p>");
       await wait(300);
+      await translateNew();
       check("line breaks between paragraphs are kept", lastTranslated().endsWith("]: Line one\nLine two"), lastTranslated());
 
       const own = document.createElement("div");
@@ -203,11 +225,13 @@
       own.innerHTML = '<div class="fui-ChatMyMessage"><div data-tid="chat-pane-message">I will handle it</div></div>';
       document.getElementById("chat").append(own);
       await wait(300);
+      await translateNew();
       check("own message is attributed to the user, not the previous sender",
         lastTranslated() === "[Dana (the user)]: I will handle it", lastTranslated());
 
       addMessage("Great, thanks");
       await wait(300);
+      await translateNew();
       const afterOwn = fetchCalls.at(-1).body.messages[1].content;
       check("sender after own message keeps their own name", lastTranslated().startsWith("[Carol]"), lastTranslated());
       check("context marks the user's message", afterOwn.includes("[Dana (the user)]: I will handle it"), afterOwn);
@@ -217,6 +241,7 @@
       named.innerHTML = '<span data-tid="message-author-name">Dana</span><div data-tid="chat-pane-message">Also the docs</div>';
       document.getElementById("chat").append(named);
       await wait(300);
+      await translateNew();
       check("message under the configured name counts as the user's", lastTranslated() === "[Dana (the user)]: Also the docs", lastTranslated());
 
       const thread = document.createElement("div");
@@ -226,6 +251,7 @@
         + '<div role="group"><div class="bubble"><div data-tid="chat-pane-message">no, the factory built it</div></div></div></div>';
       document.getElementById("chat").append(thread);
       await wait(300);
+      await translateNew();
       const kaiCall = fetchCalls.at(-1).body.messages[1].content;
       check("channel thread: names found outside the body's wrapper",
         kaiCall.includes("[Sam]: You made the train?!") && kaiCall.endsWith("[Kai]: no, the factory built it"), kaiCall);
@@ -246,6 +272,24 @@
       check("own message panel shows rewrites", ownPanel.textContent.includes("更好的说法"), ownPanel.textContent);
       check("own message insight asks for rewrites",
         fetchCalls.at(-1).body.messages[0].content.includes("The focus message was written by the user"));
+
+      const bobBody = [...document.querySelectorAll("[data-tid=chat-pane-message]")].find((b) => b.textContent.includes("好的"));
+      const bobActions = bobBody.nextElementSibling;
+      check("a Chinese message gets a copy button but no translate button",
+        bobActions.querySelector(".ctt-copy-button") && !bobActions.querySelector(".ctt-translate-button"));
+      const reactionBody = [...document.querySelectorAll("[data-tid=chat-pane-message]")].find((b) => b.textContent.startsWith("Looks good"));
+      const copyReaction = reactionBody.nextElementSibling.querySelector(".ctt-copy-button");
+      copyReaction.click();
+      await wait(50);
+      check("copy puts the message text, without its reactions, on the clipboard",
+        copiedTexts.at(-1) === "Looks good" && copyReaction.textContent === "已复制", JSON.stringify(copiedTexts.at(-1)));
+      bobActions.querySelector(".ctt-copy-button").click();
+      await wait(50);
+      check("copying a Chinese message copies its text", copiedTexts.at(-1) === "好的，我马上处理");
+      const multiline = [...document.querySelectorAll("[data-tid=chat-pane-message]")].find((b) => b.textContent.startsWith("Line one"));
+      multiline.nextElementSibling.querySelector(".ctt-copy-button").click();
+      await wait(50);
+      check("copy keeps line breaks", copiedTexts.at(-1) === "Line one\nLine two", JSON.stringify(copiedTexts.at(-1)));
 
       window.fetch = async () => { throw new DOMException("The operation was aborted.", "AbortError"); };
       const timeoutError = await translate({ message: { author: "A", text: "hello" }, context: [] }).catch((e) => e);

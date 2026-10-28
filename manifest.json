@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Teams Context Translator",
-  "version": "0.10.0",
+  "version": "0.15.1",
   "description": "Translates Microsoft Teams web chat messages with DeepSeek, using earlier messages as context.",
   "browser_specific_settings": {
     "gecko": {
@@ -36,7 +36,7 @@
         "https://teams.cloud.microsoft/*",
         "https://teams.live.com/*"
       ],
-      "js": ["settings.js", "text.js", "selectors.js", "content.js", "send-confirm.js"],
+      "js": ["settings.js", "text.js", "selectors.js", "content.js", "writer.js"],
       "css": ["content.css"],
       "run_at": "document_idle",
       "all_frames": true

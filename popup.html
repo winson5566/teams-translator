@@ -9,7 +9,6 @@
     .toggle { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-top: 1px solid #eee; cursor: pointer; }
     .toggle input { margin-top: 3px; }
     .hint { font-size: 12px; color: #666; }
-    .toggle.disabled { opacity: 0.45; cursor: default; }
     #missingKey { display: none; margin-bottom: 8px; padding: 8px; border-radius: 4px; background: #fff4ce; font-size: 13px; }
     #moreSettings { display: block; margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; color: #5b5fc7; cursor: pointer; }
   </style>
@@ -20,15 +19,15 @@
 
   <label class="toggle">
     <input id="enabled" type="checkbox">
-    <span>自动翻译消息<div class="hint">把 Teams 里的英文消息翻成中文</div></span>
+    <span>显示翻译按钮<div class="hint">在每条英文消息下加一个“译”按钮，点了才翻译</div></span>
   </label>
   <label class="toggle">
-    <input id="confirmBeforeSend" type="checkbox">
-    <span>发送前确认<div class="hint">按回车或点发送时先弹确认框，中文会先翻成英文</div></span>
+    <input id="blockChineseOnSend" type="checkbox">
+    <span>发送时挡住中文<div class="hint">Teams 输入框里还有中文时不发送，改为打开写英文窗口</div></span>
   </label>
-  <label class="toggle" id="checkToggle">
+  <label class="toggle">
     <input id="checkBeforeSend" type="checkbox">
-    <span>发送前检查内容<div class="hint">在确认框里检查是否发错、前后矛盾、语气或敏感信息</div></span>
+    <span>检查内容<div class="hint">在写英文窗口里，检查是否发错、前后矛盾、语气或敏感信息</div></span>
   </label>
 
   <a id="moreSettings">更多设置</a>

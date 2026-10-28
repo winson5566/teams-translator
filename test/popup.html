@@ -9,7 +9,7 @@
   <pre id="results"></pre>
 
   <script>
-    const store = { apiKey: "", confirmBeforeSend: false };
+    const store = { apiKey: "", blockChineseOnSend: false };
     window.openedOptions = 0;
     window.browser = {
       storage: {
@@ -48,14 +48,12 @@
       await wait(50);
 
       check("toggles show the stored settings",
-        toggle("enabled").checked && !toggle("confirmBeforeSend").checked && toggle("checkBeforeSend").checked);
-      check("content check is disabled while confirmation is off", toggle("checkBeforeSend").disabled);
+        toggle("enabled").checked && !toggle("blockChineseOnSend").checked && toggle("checkBeforeSend").checked);
       check("missing API key is pointed out", document.getElementById("missingKey").style.display === "block");
 
-      flip("confirmBeforeSend");
+      flip("blockChineseOnSend");
       await wait(20);
-      check("turning confirmation on saves it and enables the content check",
-        store.confirmBeforeSend === true && !toggle("checkBeforeSend").disabled);
+      check("turning on blocking Chinese saves it", store.blockChineseOnSend === true);
       flip("checkBeforeSend");
       await wait(20);
       check("turning the content check off saves it", store.checkBeforeSend === false);

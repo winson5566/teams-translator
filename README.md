@@ -23,15 +23,18 @@ Temporary add-ons are removed when Firefox restarts; repeat step 2.
 
 ## Use
 
-- English messages that scroll into view get a Chinese translation underneath.
-- Click the toolbar button for switches: automatic translation (badge shows OFF when paused),
+- Each English message gets a small "译" button; clicking it shows the Chinese translation (click again to
+  hide it, or to retry after an error).
+- Every message with text also gets a "复制" button that copies its original text (without reactions).
+- Click the toolbar button for switches: the translate buttons (badge shows OFF when hidden),
   confirmation before sending, and the content check; "更多设置" opens the full preferences.
-- Pressing Enter or the send button in Teams opens a confirmation dialog first (Esc cancels). Confirming only
-  puts the final text into Teams' box; you send it yourself with Enter or the send button.
-  A draft containing Chinese is translated to English in the dialog; only the (editable) English is sent.
-  The dialog also checks the message against the conversation (wrong chat, contradictions, misunderstanding,
-  tone, secrets) and warns or blocks; secrets are detected locally and never sent to DeepSeek.
-  Turn the check off with "发送前检查内容".
+- The floating "译" button (bottom right; drag it anywhere) opens a floating window, also draggable by its
+  title bar and resizable, where you write a message in Chinese or English. It is
+  translated to English and checked against the open conversation (wrong chat, contradictions,
+  misunderstanding, tone, secrets); copy the English and paste it into Teams yourself. Secrets are detected
+  locally and never sent to DeepSeek.
+- Sending from Teams works as usual, except that a message still containing Chinese is not sent; the panel
+  opens with it instead. Turn that off with "发送时挡住中文"; turn the content check off with "检查内容".
   Turn it off with "发送前确认" in the preferences.
 - Click the round "i" after a translation for a context-aware explanation of the message and
   2 to 3 suggested replies in English with Chinese meaning; "复制" copies the English reply.
@@ -44,7 +47,8 @@ in Teams (right click, Inspect) and update `messageBody`, `authorName` and `ownM
 
 ## Test
 
-Run `python3 test/serve.py` and open the URL it prints; `test/fake-teams.html`,
-`test/send-confirm.html` and `test/popup.html` list PASS/FAIL for each behaviour. It stubs the extension API and DeepSeek, so no key is needed.
+Run `python3 test/serve.py` and open the URL it prints (keep the tab visible: the window-size tests rely on
+the browser rendering it); `test/fake-teams.html`,
+`test/writer.html` and `test/popup.html` list PASS/FAIL for each behaviour. It stubs the extension API and DeepSeek, so no key is needed.
 
 `icons/icon.svg` is the source of the PNG icons; Chrome and Edge do not accept SVG icons.

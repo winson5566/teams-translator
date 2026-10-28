@@ -3,7 +3,7 @@ if (typeof browser === "undefined") globalThis.browser = chrome;
 
 const DEFAULT_SETTINGS = {
   enabled: true,
-  confirmBeforeSend: true,
+  blockChineseOnSend: true,
   checkBeforeSend: true,
   apiKey: "",
   model: "deepseek-flash",
@@ -11,6 +11,11 @@ const DEFAULT_SETTINGS = {
   myName: "",
   contextMessageCount: 8,
   insightContextMessageCount: 15,
+  // Where the user dragged the floating window and its button, as { left, top } in pixels; null until moved.
+  writerPosition: null,
+  writerButtonPosition: null,
+  // The floating window's size after the user resized it, as { width, height } in pixels.
+  writerSize: null,
 };
 
 // Model names DeepSeek no longer accepts, mapped to the model that replaced them.

@@ -283,6 +283,7 @@ function parseSendCheck(content) {
 }
 
 async function checkBeforeSending(request) {
+  if (!request.message?.trim()) throw new Error("没有可以检查的内容");
   const settings = await loadSettings();
   const content = await callDeepSeek({
     messages: buildSendCheckPrompt(request, settings),

@@ -12,7 +12,7 @@ EXTENSION_FILES = [
     "selectors.js",
     "background.js",
     "content.js",
-    "send-confirm.js",
+    "writer.js",
     "content.css",
     "options.html",
     "options.js",

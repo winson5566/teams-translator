@@ -1,6 +1,6 @@
 const FIELDS = ["apiKey", "targetLanguage", "myName", "contextMessageCount", "insightContextMessageCount", "model"];
 const NUMBER_FIELDS = ["contextMessageCount", "insightContextMessageCount"];
-const CHECKBOX_FIELDS = ["confirmBeforeSend", "checkBeforeSend"];
+const CHECKBOX_FIELDS = ["blockChineseOnSend", "checkBeforeSend"];
 const REQUIRED_ORIGINS = browser.runtime.getManifest().host_permissions;
 const statusLine = document.getElementById("status");
 

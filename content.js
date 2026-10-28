@@ -8,6 +8,8 @@ const AUTHOR_SEARCH_DEPTH = 8;
 const AUTHOR_LOOKBACK = 50;
 // Teams mutates the page constantly; new messages are looked for at most this often.
 const SCAN_DELAY_MS = 100;
+// Functions that add the extension's controls to new parts of the page; other content scripts append theirs.
+const PAGE_SCANNERS = [];
 
 let settings = { ...DEFAULT_SETTINGS };
 const translationsByText = new Map();
@@ -164,11 +166,12 @@ function element(tag, className, text = "") {
   return node;
 }
 
-function copyButton(text) {
-  const button = element("button", "ctt-button", "复制");
+// The text is read on click, so a message edited after the button was added copies its current text.
+function copyButton(textToCopy) {
+  const button = element("button", "ctt-button ctt-copy-button", "复制");
   button.addEventListener("click", async (event) => {
     event.stopPropagation();
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(textToCopy());
     button.textContent = "已复制";
     setTimeout(() => (button.textContent = "复制"), COPIED_FEEDBACK_MS);
   });
@@ -183,7 +186,7 @@ function renderInsight(panel, { explanation, replies }, isMine) {
     ...replies.map(({ english, translation }) => {
       const reply = element("div", "ctt-reply");
       const englishLine = element("div", "ctt-reply-english", english);
-      englishLine.append(copyButton(english));
+      englishLine.append(copyButton(() => english));
       reply.append(englishLine, element("div", "ctt-reply-translation", translation));
       return reply;
     })
@@ -218,55 +221,75 @@ function insightButton(body, box, isMine) {
   return button;
 }
 
-async function translateBody(body) {
+// Translation runs only when the user clicks a message's button; its result sits in a container after
+// the message's action bar so one click can hide or show the translation and any insight panel together.
+async function translateBody(body, actions) {
   const request = messageWithContext(body, settings.contextMessageCount);
-  const text = request.message.text;
-  if (!hasWords(text) || isMostlyChinese(text)) {
-    body.setAttribute(STATE_ATTR, "skipped");
-    return;
-  }
-  body.setAttribute(STATE_ATTR, "translating");
-  const box = document.createElement("div");
-  box.className = BOX_CLASS;
+  const result = element("div", "ctt-result");
+  const box = element("div", BOX_CLASS, "翻译中...");
   box.classList.toggle("ctt-mine", request.message.isMine);
-  box.textContent = "翻译中...";
-  body.after(box);
+  result.append(box);
+  actions.after(result);
   try {
     const translation = await requestTranslation(request);
     box.replaceChildren(element("span", "ctt-text", translation), insightButton(body, box, request.message.isMine));
     body.setAttribute(STATE_ATTR, "done");
   } catch (error) {
-    box.textContent = `翻译失败: ${error.message}`;
+    box.textContent = `翻译失败: ${error.message}。再点一次“译”重试`;
     box.classList.add("ctt-error");
     body.setAttribute(STATE_ATTR, "failed");
   }
 }
 
-const visibilityObserver = new IntersectionObserver((entries) => {
-  if (!settings.enabled) return;
-  for (const entry of entries) {
-    if (entry.isIntersecting && entry.target.getAttribute(STATE_ATTR) === "waiting") {
-      visibilityObserver.unobserve(entry.target);
-      translateBody(entry.target);
-    }
+function toggleTranslation(body, actions, button) {
+  const result = actions.nextElementSibling?.classList.contains("ctt-result") ? actions.nextElementSibling : null;
+  if (result && !result.querySelector(".ctt-error")) {
+    result.hidden = !result.hidden;
+    button.classList.toggle("ctt-open", !result.hidden);
+    return;
   }
-});
+  result?.remove();
+  button.classList.add("ctt-open");
+  translateBody(body, actions);
+}
 
-function observeNewMessages() {
+// Every message with words can be copied; only those not already in Chinese can be translated.
+function messageActions(body, canTranslate) {
+  const actions = element("div", "ctt-actions");
+  if (canTranslate) {
+    const button = element("button", "ctt-button ctt-translate-button", "译");
+    button.title = "翻译这条消息";
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleTranslation(body, actions, button);
+    });
+    actions.append(button);
+  }
+  const copy = copyButton(() => bodyDetails(body).text);
+  copy.title = "复制这条消息的原文";
+  actions.append(copy);
+  return actions;
+}
+
+function addMessageActions() {
   for (const body of allMessageBodies()) {
-    if (!body.hasAttribute(STATE_ATTR)) {
-      body.setAttribute(STATE_ATTR, "waiting");
-      visibilityObserver.observe(body);
+    if (body.hasAttribute(STATE_ATTR)) continue;
+    const { text } = bodyDetails(body);
+    if (!hasWords(text)) {
+      body.setAttribute(STATE_ATTR, "skipped");
+      continue;
     }
+    const canTranslate = !isMostlyChinese(text);
+    body.setAttribute(STATE_ATTR, canTranslate ? "ready" : "copy-only");
+    body.after(messageActions(body, canTranslate));
   }
 }
 
-// IntersectionObserver only reports changes, so waiting messages are re-observed to get a fresh report after resuming.
-function reobserveWaitingMessages() {
-  for (const body of document.querySelectorAll(`[${STATE_ATTR}="waiting"]`)) {
-    visibilityObserver.unobserve(body);
-    visibilityObserver.observe(body);
-  }
+PAGE_SCANNERS.push(addMessageActions);
+
+// Turning the extension off hides its buttons and results rather than removing them.
+function showExtensionElements(enabled) {
+  document.documentElement.classList.toggle("ctt-hidden", !enabled);
 }
 
 browser.storage.onChanged.addListener((changes, area) => {
@@ -274,19 +297,21 @@ browser.storage.onChanged.addListener((changes, area) => {
   for (const [key, { newValue }] of Object.entries(changes)) {
     settings[key] = newValue;
   }
-  if (changes.enabled?.newValue) reobserveWaitingMessages();
+  if (changes.enabled) showExtensionElements(changes.enabled.newValue);
 });
 
 loadSettings().then((loaded) => {
   settings = loaded;
-  observeNewMessages();
+  showExtensionElements(settings.enabled);
+  const scanPage = () => PAGE_SCANNERS.forEach((scan) => scan());
+  scanPage();
   let scanPending = false;
   const scheduleScan = () => {
     if (scanPending) return;
     scanPending = true;
     setTimeout(() => {
       scanPending = false;
-      observeNewMessages();
+      scanPage();
     }, SCAN_DELAY_MS);
   };
   new MutationObserver(scheduleScan).observe(document.body, { childList: true, subtree: true });
