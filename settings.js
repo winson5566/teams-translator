@@ -26,10 +26,23 @@ async function loadSettings() {
   return { ...settings, model: RETIRED_MODELS[settings.model] ?? settings.model };
 }
 
+// After the extension is reloaded or updated, pages opened before it still run the old content script, which
+// can no longer reach the background. Chrome and Edge may remove runtime.id or runtime itself, or say
+// "Extension context invalidated"; Firefox says "Receiving end does not exist".
+const STALE_PAGE_ERRORS = ["Extension context invalidated", "Receiving end does not exist"];
+const STALE_PAGE_MESSAGE = "插件刚更新过，请刷新这个页面";
+
 // Chrome and Edge drop a promise returned from onMessage, so the background answers through sendResponse
 // with { ok, result } or { ok, error }, which works in Firefox too.
 async function askBackground(message) {
-  const reply = await browser.runtime.sendMessage(message);
+  if (!browser.runtime?.id) throw new Error(STALE_PAGE_MESSAGE);
+  let reply;
+  try {
+    reply = await browser.runtime.sendMessage(message);
+  } catch (error) {
+    if (!STALE_PAGE_ERRORS.some((text) => error.message.includes(text))) throw error;
+    throw new Error(STALE_PAGE_MESSAGE, { cause: error });
+  }
   if (!reply) throw new Error("插件后台没有回应，请刷新这个页面再试");
   if (!reply.ok) throw new Error(reply.error);
   return reply.result;

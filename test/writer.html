@@ -35,6 +35,7 @@
         onChanged: { addListener: (l) => storageListeners.push(l) },
       },
       runtime: {
+        id: "test-extension",
         onMessage: { addListener: (l) => messageListeners.push(l) },
         onInstalled: { addListener: () => {} },
         onConnect: { addListener: () => {} },

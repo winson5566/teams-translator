@@ -40,6 +40,7 @@
         onChanged: { addListener: (l) => storageListeners.push(l) },
       },
       runtime: {
+        id: "test-extension",
         onMessage: { addListener: (l) => messageListeners.push(l) },
         onInstalled: { addListener: () => {} },
         onConnect: { addListener: () => {} },
@@ -290,6 +291,25 @@
       multiline.nextElementSibling.querySelector(".ctt-copy-button").click();
       await wait(50);
       check("copy keeps line breaks", copiedTexts.at(-1) === "Line one\nLine two", JSON.stringify(copiedTexts.at(-1)));
+
+      const realSendMessage = browser.runtime.sendMessage;
+      browser.runtime.sendMessage = async () => { throw new Error("Extension context invalidated."); };
+      const staleError = await askBackground({ type: "translate" }).catch((e) => e.message);
+      browser.runtime.sendMessage = async () => { throw new Error("Could not establish connection. Receiving end does not exist."); };
+      const staleFirefoxError = await askBackground({ type: "translate" }).catch((e) => e.message);
+      browser.runtime.sendMessage = async () => { throw new Error("some other failure"); };
+      const otherError = await askBackground({ type: "translate" }).catch((e) => e.message);
+      browser.runtime.sendMessage = realSendMessage;
+      const realRuntime = browser.runtime;
+      browser.runtime = { ...realRuntime, id: undefined };
+      const noIdError = await askBackground({ type: "translate" }).catch((e) => e.message);
+      browser.runtime = undefined;
+      const noRuntimeError = await askBackground({ type: "translate" }).catch((e) => e.message);
+      browser.runtime = realRuntime;
+      check("a page left over from before an update is told to refresh, other errors pass through",
+        [staleError, staleFirefoxError, noIdError, noRuntimeError].every((e) => e === "插件刚更新过，请刷新这个页面")
+          && otherError === "some other failure",
+        [staleError, staleFirefoxError, noIdError, noRuntimeError, otherError].join(" | "));
 
       window.fetch = async () => { throw new DOMException("The operation was aborted.", "AbortError"); };
       const timeoutError = await translate({ message: { author: "A", text: "hello" }, context: [] }).catch((e) => e);
